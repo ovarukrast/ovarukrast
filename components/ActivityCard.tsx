@@ -1,4 +1,3 @@
-
 import React from 'react';
 
 interface ActivityCardProps {
@@ -12,10 +11,10 @@ const ActivityCard: React.FC<ActivityCardProps> = ({ title, description, icon, o
     return (
         <button
             onClick={onClick}
-            className="bg-white rounded-xl shadow-lg p-6 text-left hover:shadow-xl hover:scale-105 transition-all duration-300 focus:outline-none focus:ring-4 focus:ring-blue-300 w-full"
+            className="bg-white rounded-2xl shadow-lg p-6 text-left hover:shadow-xl hover:-translate-y-1 transition-all duration-300 ease-in-out focus:outline-none focus:ring-4 focus:ring-indigo-300 w-full border border-slate-100"
         >
             <div className="flex items-start space-x-4">
-                <div className="flex-shrink-0 h-12 w-12 bg-blue-500 text-white rounded-lg flex items-center justify-center">
+                <div className="flex-shrink-0 h-14 w-14 bg-gradient-to-br from-blue-500 to-indigo-600 text-white rounded-xl flex items-center justify-center shadow-md">
                     {icon}
                 </div>
                 <div>

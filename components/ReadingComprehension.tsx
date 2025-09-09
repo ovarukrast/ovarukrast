@@ -1,195 +1,130 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { generateReadingComprehensionExercise } from '../services/geminiService';
-import { sendResultsEmail } from '../services/emailService';
-import { ReadingComprehensionContent } from '../types';
-import LoadingSpinner from './LoadingSpinner';
-import { CheckIcon, XIcon, ArrowLeftIcon } from './icons';
-
-interface User {
-    name: string;
-    teacherEmail: string;
-}
+import React, { useState, useEffect } from 'react';
+import { ReadingComprehensionExercise, UserAnswer } from '../types';
 
 interface ReadingComprehensionProps {
-    onBack: () => void;
-    user: User;
+    exercise: ReadingComprehensionExercise;
+    onComplete: (answers: UserAnswer[]) => void;
 }
 
-const ReadingComprehension: React.FC<ReadingComprehensionProps> = ({ onBack, user }) => {
-    const [exercise, setExercise] = useState<ReadingComprehensionContent | null>(null);
+const ReadingComprehension: React.FC<ReadingComprehensionProps> = ({ exercise, onComplete }) => {
+    const [view, setView] = useState<'reading' | 'questions'>('reading');
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-    const [selectedOption, setSelectedOption] = useState<string | null>(null);
-    const [feedback, setFeedback] = useState<'correct' | 'incorrect' | null>(null);
-    const [score, setScore] = useState(0);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [isFinished, setIsFinished] = useState(false);
-    const [isSending, setIsSending] = useState(false);
-    const [emailStatus, setEmailStatus] = useState<{ success: boolean; message: string } | null>(null);
-
-    const fetchExercise = useCallback(async () => {
-        setIsLoading(true);
-        setError(null);
-        try {
-            const data = await generateReadingComprehensionExercise();
-            if(!data || !data.text || data.questions.length === 0) throw new Error("No exercise was generated.");
-            setExercise(data);
-        } catch (e) {
-            setError(e instanceof Error ? e.message : 'An unknown error occurred.');
-        } finally {
-            setIsLoading(false);
-        }
-    }, []);
-
-    useEffect(() => {
-        fetchExercise();
-    }, [fetchExercise]);
-
-    const handleSelectOption = (option: string) => {
-        if (feedback || !exercise) return;
-        
-        setSelectedOption(option);
-        const correctAnswer = exercise.questions[currentQuestionIndex].correct_answer;
-        if (option === correctAnswer) {
-            setFeedback('correct');
-            setScore(prev => prev + 1);
-        } else {
-            setFeedback('incorrect');
-        }
-    };
-
-    const handleNextQuestion = () => {
-        setFeedback(null);
-        setSelectedOption(null);
-        if (exercise && currentQuestionIndex < exercise.questions.length - 1) {
-            setCurrentQuestionIndex(prev => prev + 1);
-        } else {
-            setIsFinished(true);
-        }
-    };
-    
-    const restart = () => {
-        setExercise(null);
-        setCurrentQuestionIndex(0);
-        setSelectedOption(null);
-        setFeedback(null);
-        setScore(0);
-        setIsLoading(true);
-        setError(null);
-        setIsFinished(false);
-        setEmailStatus(null);
-        setIsSending(false);
-        fetchExercise();
-    }
-
-    const handleSendResults = async () => {
-        if (!exercise) return;
-        setIsSending(true);
-        setEmailStatus(null);
-        const result = await sendResultsEmail({
-            studentName: user.name,
-            teacherEmail: user.teacherEmail,
-            activityName: "Comprensión Lectora",
-            score: score,
-            totalQuestions: exercise.questions.length,
-        });
-        setEmailStatus(result);
-        setIsSending(false);
-    };
-
-    if (isLoading) return <div className="w-full max-w-2xl mx-auto"><LoadingSpinner /></div>;
-    if (error) return <div className="text-center text-red-500">{error}</div>;
-
-    if (isFinished) {
-        return (
-            <div className="text-center p-8 bg-white rounded-xl shadow-lg">
-                <h2 className="text-3xl font-bold text-slate-800">¡Actividad Completada, {user.name}!</h2>
-                <p className="mt-4 text-xl text-slate-600">
-                    Tu puntuación: <span className="font-bold text-blue-600">{score}</span> de <span className="font-bold">{exercise?.questions.length}</span>
-                </p>
-                <div className="mt-8 flex flex-col items-center space-y-4">
-                    <div className="flex justify-center space-x-4">
-                        <button onClick={onBack} className="px-6 py-2 bg-slate-200 text-slate-800 rounded-lg hover:bg-slate-300 transition-colors">Menú Principal</button>
-                        <button onClick={restart} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">Repetir</button>
-                    </div>
-                    <div className="pt-4 mt-4 border-t w-full max-w-sm mx-auto">
-                        <button 
-                            onClick={handleSendResults} 
-                            disabled={isSending || (emailStatus?.success ?? false)}
-                            className="w-full px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:bg-green-400 disabled:cursor-not-allowed"
-                        >
-                            {isSending ? 'Enviando...' : (emailStatus?.success ? '¡Resultados Enviados!' : 'Enviar Resultados al Profesor')}
-                        </button>
-                        {emailStatus && !emailStatus.success && (
-                            <p className="text-red-500 text-sm mt-2">{emailStatus.message}</p>
-                        )}
-                         {emailStatus?.success && (
-                            <p className="text-green-600 text-sm mt-2">{emailStatus.message}</p>
-                        )}
-                    </div>
-                </div>
-            </div>
-        );
-    }
-    
-    if (!exercise) return null;
+    const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
+    const [userAnswers, setUserAnswers] = useState<UserAnswer[]>([]);
+    const [feedback, setFeedback] = useState<'idle' | 'correct' | 'incorrect'>('idle');
 
     const currentQuestion = exercise.questions[currentQuestionIndex];
+    const isLastQuestion = currentQuestionIndex === exercise.questions.length - 1;
+
+     useEffect(() => {
+        setView('reading');
+        setCurrentQuestionIndex(0);
+        setSelectedAnswer(null);
+        setUserAnswers([]);
+        setFeedback('idle');
+    }, [exercise]);
+
+    const handleAnswerSelect = (option: string) => {
+        if (feedback !== 'idle') return;
+        setSelectedAnswer(option);
+    };
+
+    const handleCheck = () => {
+        if (feedback !== 'idle' || selectedAnswer === null) return;
+
+        const isCorrect = selectedAnswer === currentQuestion.correctAnswer;
+        const feedbackStatus = isCorrect ? 'correct' : 'incorrect';
+        setFeedback(feedbackStatus);
+
+        const finalAnswers = [
+            ...userAnswers,
+            {
+                questionIndex: currentQuestionIndex,
+                answer: selectedAnswer,
+                isCorrect: isCorrect,
+            }
+        ];
+        setUserAnswers(finalAnswers);
+         
+        if (isLastQuestion) {
+             setTimeout(() => onComplete(finalAnswers), 1500);
+        }
+    };
+
+    const handleNext = () => {
+        if (!isLastQuestion) {
+            setCurrentQuestionIndex(prev => prev + 1);
+            setSelectedAnswer(null);
+            setFeedback('idle');
+        }
+    };
+
+    if (view === 'reading') {
+        return (
+             <div className="w-full max-w-3xl mx-auto bg-white p-8 sm:p-10 rounded-2xl shadow-xl border border-slate-100">
+                <h2 className="text-3xl font-bold text-slate-800 mb-4">{exercise.title}</h2>
+                <div className="prose max-w-none bg-slate-50 p-6 rounded-lg my-6 text-slate-700">
+                    <p className="whitespace-pre-wrap">{exercise.text}</p>
+                </div>
+                <div className="text-center">
+                    <button onClick={() => setView('questions')} className="w-full sm:w-auto px-10 py-3 border border-transparent rounded-lg shadow-sm text-base font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors">
+                        Empezar Preguntas
+                    </button>
+                </div>
+            </div>
+        )
+    }
 
     return (
-        <div className="w-full max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-lg relative">
-            <button onClick={onBack} className="absolute top-4 left-4 text-slate-500 hover:text-slate-800">
-                <ArrowLeftIcon className="w-6 h-6"/>
-            </button>
-            <div className="text-center mb-6">
-                <p className="text-slate-500">Pregunta {currentQuestionIndex + 1} de {exercise.questions.length}</p>
-                 <div className="w-full bg-slate-200 rounded-full h-2.5 mt-2">
-                    <div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${((currentQuestionIndex + 1) / exercise.questions.length) * 100}%` }}></div>
+        <div className="w-full max-w-2xl mx-auto bg-white p-8 sm:p-10 rounded-2xl shadow-xl border border-slate-100">
+            <h2 className="text-2xl font-bold text-center text-slate-800 mb-2">{exercise.title}</h2>
+            <p className="text-center text-slate-500 mb-8">Pregunta {currentQuestionIndex + 1} de {exercise.questions.length}</p>
+
+            <div className="my-8">
+                <div className="p-4 min-h-[250px] flex flex-col justify-center">
+                    <p className="text-xl font-semibold text-slate-800 mb-6 text-center">{currentQuestion.question}</p>
+                    <div className="space-y-3">
+                        {currentQuestion.options.map((option) => {
+                             const isSelected = selectedAnswer === option;
+                             let optionClass = "w-full p-4 text-left rounded-lg border-2 text-md transition-all duration-200 flex items-center space-x-3 ";
+
+                             if (feedback === 'idle') {
+                                optionClass += isSelected 
+                                    ? 'bg-indigo-100 border-indigo-500 ring-2 ring-indigo-300' 
+                                    : 'bg-white hover:bg-slate-50 border-slate-300 cursor-pointer';
+                             } else {
+                                const isCorrectAnswer = option === currentQuestion.correctAnswer;
+                                optionClass += 'cursor-default ';
+                                if(isCorrectAnswer) {
+                                    optionClass += 'bg-green-50 border-green-400 text-green-800';
+                                } else if (isSelected && !isCorrectAnswer) {
+                                    optionClass += 'bg-red-50 border-red-400 text-red-800';
+                                } else {
+                                    optionClass += 'bg-slate-50 border-slate-200 text-slate-500';
+                                }
+                             }
+
+                            return (
+                                <button key={option} onClick={() => handleAnswerSelect(option)} className={optionClass} disabled={feedback !== 'idle'}>
+                                    <span>{option}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
                 </div>
             </div>
             
-            <div className="bg-slate-50 p-4 rounded-lg mb-6">
-                <h3 className="text-lg font-semibold text-slate-800 mb-2">Lee el texto:</h3>
-                <p className="text-slate-600 leading-relaxed">{exercise.text}</p>
-            </div>
-
-            <h4 className="text-xl font-semibold text-slate-800 mb-4">{currentQuestion.question}</h4>
-
-            <div className="space-y-3">
-                {currentQuestion.options.map(option => (
-                    <button
-                        key={option}
-                        onClick={() => handleSelectOption(option)}
-                        disabled={feedback !== null}
-                        className={`w-full text-left p-4 rounded-lg border-2 transition-all duration-200
-                            ${feedback === null ? 'hover:bg-blue-50 hover:border-blue-500' : ''}
-                            ${selectedOption === option ? 
-                                (feedback === 'correct' ? 'bg-green-100 border-green-500 text-green-800' : 'bg-red-100 border-red-500 text-red-800') :
-                                'bg-white border-slate-300'
-                            }
-                            ${feedback !== null && option !== currentQuestion.correct_answer && selectedOption !== option ? 'opacity-50' : ''}
-                            ${feedback !== null && option === currentQuestion.correct_answer ? '!bg-green-100 !border-green-500 !text-green-800' : ''}
-                        `}
-                    >
-                        {option}
+            <div className="mt-8 text-center">
+                {feedback === 'idle' ? (
+                    <button onClick={handleCheck} disabled={selectedAnswer === null} className="w-full sm:w-auto px-10 py-3 border border-transparent rounded-lg shadow-sm text-base font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-slate-400 disabled:cursor-not-allowed transition-colors">
+                        Comprobar
                     </button>
-                ))}
-            </div>
-
-            {feedback && (
-                <div className={`mt-6 p-4 rounded-lg flex items-center justify-center text-lg ${feedback === 'correct' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                    {feedback === 'correct' ? <CheckIcon className="w-6 h-6 mr-2"/> : <XIcon className="w-6 h-6 mr-2"/>}
-                    {feedback === 'correct' ? '¡Correcto!' : `Incorrecto.`}
-                </div>
-            )}
-            
-            {feedback && (
-                <div className="mt-6 flex justify-center">
-                    <button onClick={handleNextQuestion} className="px-8 py-3 bg-slate-700 text-white font-semibold rounded-lg shadow-md hover:bg-slate-800 transition-all duration-200">
-                        Siguiente
+                ) : (
+                    <button onClick={isLastQuestion ? () => onComplete(userAnswers) : handleNext} className="w-full sm:w-auto px-10 py-3 border border-transparent rounded-lg shadow-sm text-base font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors">
+                        {isLastQuestion ? 'Finalizar Ejercicio' : 'Siguiente'}
                     </button>
-                </div>
-            )}
+                )}
+            </div>
         </div>
     );
 };

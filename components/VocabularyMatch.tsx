@@ -1,199 +1,137 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { generateVocabularyPairs } from '../services/geminiService';
-import { sendResultsEmail } from '../services/emailService';
-import { VocabularyPair } from '../types';
-import LoadingSpinner from './LoadingSpinner';
-import { ArrowLeftIcon } from './icons';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { VocabularyMatchExercise, UserAnswer } from '../types';
 
-interface User {
-    name: string;
-    teacherEmail: string;
-}
-
-interface VocabularyMatchProps {
-    onBack: () => void;
-    user: User;
-}
-
-// Fisher-Yates shuffle algorithm
+// Helper to shuffle an array
 const shuffleArray = <T,>(array: T[]): T[] => {
-    const shuffled = [...array];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-    }
-    return shuffled;
+    return [...array].sort(() => Math.random() - 0.5);
 };
 
-const VocabularyMatch: React.FC<VocabularyMatchProps> = ({ onBack, user }) => {
-    const [pairs, setPairs] = useState<VocabularyPair[]>([]);
-    const [spanishWords, setSpanishWords] = useState<string[]>([]);
-    const [greekWords, setGreekWords] = useState<string[]>([]);
-    const [selectedSpanish, setSelectedSpanish] = useState<string | null>(null);
-    const [selectedGreek, setSelectedGreek] = useState<string | null>(null);
-    const [matchedPairs, setMatchedPairs] = useState<string[]>([]);
-    const [incorrectAttempts, setIncorrectAttempts] = useState<string[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [isSending, setIsSending] = useState(false);
-    const [emailStatus, setEmailStatus] = useState<{ success: boolean; message: string } | null>(null);
+interface VocabularyMatchProps {
+    exercise: VocabularyMatchExercise;
+    onComplete: (answers: UserAnswer[]) => void;
+}
 
-    const fetchVocabulary = useCallback(async () => {
-        setIsLoading(true);
-        setError(null);
-        try {
-            const data = await generateVocabularyPairs();
-            if(data.length === 0) throw new Error("No vocabulary was generated.");
-            setPairs(data);
-            setSpanishWords(shuffleArray(data.map(p => p.spanish_word)));
-            setGreekWords(shuffleArray(data.map(p => p.greek_translation)));
-        } catch (e) {
-            setError(e instanceof Error ? e.message : 'An unknown error occurred.');
-        } finally {
-            setIsLoading(false);
-        }
-    }, []);
+const VocabularyMatch: React.FC<VocabularyMatchProps> = ({ exercise, onComplete }) => {
+    const { items } = exercise;
+    const words = useMemo(() => items.map(item => item.word), [items]);
+    const definitions = useMemo(() => shuffleArray(items.map(item => item.definition)), [items]);
+    const originalDefinitionIndices = useMemo(() => definitions.map(def => items.findIndex(item => item.definition === def)), [definitions, items]);
+
+    const [selectedWordIndex, setSelectedWordIndex] = useState<number | null>(null);
+    const [selectedDefIndex, setSelectedDefIndex] = useState<number | null>(null);
+    const [correctPairs, setCorrectPairs] = useState<Record<number, number>>({}); // { wordIndex: defIndex }
+    const [incorrectPair, setIncorrectPair] = useState<{ word: number; def: number } | null>(null);
+
+    const onCompleteCallback = useCallback(onComplete, []);
 
     useEffect(() => {
-        fetchVocabulary();
-    }, [fetchVocabulary]);
-    
-    useEffect(() => {
-        if (selectedSpanish && selectedGreek) {
-            const correctPair = pairs.find(p => p.spanish_word === selectedSpanish);
-            if (correctPair && correctPair.greek_translation === selectedGreek) {
-                setMatchedPairs(prev => [...prev, selectedSpanish]);
-            } else {
-                setIncorrectAttempts([selectedSpanish, selectedGreek]);
-                setTimeout(() => {
-                    setIncorrectAttempts([]);
-                }, 800);
-            }
-            setTimeout(() => {
-                setSelectedSpanish(null);
-                setSelectedGreek(null);
-            }, 500);
+        const totalCorrect = Object.keys(correctPairs).length;
+        if (totalCorrect > 0 && totalCorrect === items.length) {
+            const results: UserAnswer[] = items.map((item, index) => ({
+                questionIndex: index,
+                answer: definitions[correctPairs[index]],
+                isCorrect: true,
+            }));
+             // Delay to allow final animation
+            setTimeout(() => onCompleteCallback(results), 500);
         }
-    }, [selectedSpanish, selectedGreek, pairs]);
+    }, [correctPairs, items, definitions, onCompleteCallback]);
 
-    const isFinished = matchedPairs.length === pairs.length && pairs.length > 0;
+
+    const handleSelection = (wordIndex: number | null, defIndex: number | null) => {
+        if (wordIndex === null || defIndex === null) return;
+        
+        const isMatchCorrect = originalDefinitionIndices[defIndex] === wordIndex;
+
+        if (isMatchCorrect) {
+            setCorrectPairs(prev => ({ ...prev, [wordIndex]: defIndex }));
+        } else {
+            setIncorrectPair({ word: wordIndex, def: defIndex });
+            setTimeout(() => setIncorrectPair(null), 500);
+        }
+
+        setSelectedWordIndex(null);
+        setSelectedDefIndex(null);
+    };
+
+    const handleWordClick = (index: number) => {
+        if (Object.keys(correctPairs).map(Number).includes(index)) return;
+        setSelectedWordIndex(index);
+        handleSelection(index, selectedDefIndex);
+    };
+
+    const handleDefClick = (index: number) => {
+        if (Object.values(correctPairs).includes(index)) return;
+        setSelectedDefIndex(index);
+        handleSelection(selectedWordIndex, index);
+    };
+
+    const getWordState = (index: number) => {
+        if (Object.keys(correctPairs).map(Number).includes(index)) return 'correct';
+        if (incorrectPair?.word === index) return 'incorrect';
+        if (selectedWordIndex === index) return 'selected';
+        return 'idle';
+    };
     
-    const restart = () => {
-        setPairs([]);
-        setSpanishWords([]);
-        setGreekWords([]);
-        setSelectedSpanish(null);
-        setSelectedGreek(null);
-        setMatchedPairs([]);
-        setIncorrectAttempts([]);
-        setEmailStatus(null);
-        setIsSending(false);
-        fetchVocabulary();
+    const getDefState = (index: number) => {
+        if (Object.values(correctPairs).includes(index)) return 'correct';
+        if (incorrectPair?.def === index) return 'incorrect';
+        if (selectedDefIndex === index) return 'selected';
+        return 'idle';
     };
 
-    const handleSendResults = async () => {
-        if (pairs.length === 0) return;
-        setIsSending(true);
-        setEmailStatus(null);
-        const result = await sendResultsEmail({
-            studentName: user.name,
-            teacherEmail: user.teacherEmail,
-            activityName: "Vocabulario",
-            score: pairs.length,
-            totalQuestions: pairs.length,
-        });
-        setEmailStatus(result);
-        setIsSending(false);
+    const getButtonClass = (state: 'idle' | 'selected' | 'correct' | 'incorrect') => {
+        switch (state) {
+            case 'correct':
+                return 'bg-green-100 text-green-800 border-green-300 cursor-default';
+            case 'incorrect':
+                return 'bg-red-100 border-red-400 animate-pulse';
+            case 'selected':
+                return 'bg-indigo-100 border-indigo-400 ring-2 ring-indigo-300';
+            case 'idle':
+            default:
+                return 'bg-white hover:bg-slate-50 border-slate-300';
+        }
     };
 
-    if (isLoading) return <div className="w-full max-w-3xl mx-auto"><LoadingSpinner /></div>;
-    if (error) return <div className="text-center text-red-500">{error}</div>;
 
     return (
-        <div className="w-full max-w-3xl mx-auto bg-white p-8 rounded-xl shadow-lg relative">
-            <button onClick={onBack} className="absolute top-4 left-4 text-slate-500 hover:text-slate-800">
-                <ArrowLeftIcon className="w-6 h-6"/>
-            </button>
-            <h2 className="text-2xl font-bold text-center text-slate-800 mb-2">Une las Parejas</h2>
-            <p className="text-center text-slate-500 mb-6">Haz clic en una palabra en español y su traducción en griego.</p>
-
-            {isFinished ? (
-                 <div className="text-center p-8">
-                    <h2 className="text-3xl font-bold text-green-600">¡Excelente, {user.name}!</h2>
-                    <p className="mt-4 text-xl text-slate-600">Has encontrado todas las parejas.</p>
-                     <div className="mt-8 flex flex-col items-center space-y-4">
-                        <div className="flex justify-center space-x-4">
-                            <button onClick={onBack} className="px-6 py-2 bg-slate-200 text-slate-800 rounded-lg hover:bg-slate-300 transition-colors">Menú Principal</button>
-                            <button onClick={restart} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">Jugar de Nuevo</button>
-                        </div>
-                        <div className="pt-4 mt-4 border-t w-full max-w-sm mx-auto">
-                            <button 
-                                onClick={handleSendResults} 
-                                disabled={isSending || (emailStatus?.success ?? false)}
-                                className="w-full px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:bg-green-400 disabled:cursor-not-allowed"
-                            >
-                                {isSending ? 'Enviando...' : (emailStatus?.success ? '¡Resultados Enviados!' : 'Enviar Resultados al Profesor')}
-                            </button>
-                            {emailStatus && !emailStatus.success && (
-                                <p className="text-red-500 text-sm mt-2">{emailStatus.message}</p>
-                            )}
-                             {emailStatus?.success && (
-                                <p className="text-green-600 text-sm mt-2">{emailStatus.message}</p>
-                            )}
-                        </div>
-                    </div>
+        <div className="w-full max-w-3xl mx-auto bg-white p-8 rounded-2xl shadow-xl border border-slate-100">
+            <h2 className="text-3xl font-bold text-center text-slate-800 mb-2">{exercise.title}</h2>
+            <p className="text-center text-slate-500 mb-8">{exercise.instructions}</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                {/* Words Column */}
+                <div className="space-y-3">
+                    {words.map((word, index) => (
+                        <button
+                            key={index}
+                            onClick={() => handleWordClick(index)}
+                            disabled={getWordState(index) === 'correct'}
+                            className={`w-full p-4 text-left rounded-lg border-2 transition-all duration-200 ${getButtonClass(getWordState(index))}`}
+                        >
+                            {word}
+                        </button>
+                    ))}
                 </div>
-            ) : (
-                <div className="grid grid-cols-2 gap-6">
-                    {/* Spanish Words Column */}
-                    <div className="space-y-3">
-                        {spanishWords.map(word => {
-                            const isMatched = matchedPairs.includes(word);
-                            const isSelected = selectedSpanish === word;
-                            const isIncorrect = incorrectAttempts.includes(word);
-                            return (
-                                <button
-                                    key={word}
-                                    onClick={() => !isMatched && setSelectedSpanish(word)}
-                                    disabled={isMatched}
-                                    className={`w-full p-4 text-lg rounded-lg border-2 transition-all duration-200 text-center capitalize font-semibold
-                                        ${isMatched ? 'bg-slate-200 border-slate-200 text-slate-400 cursor-not-allowed' : ''}
-                                        ${!isMatched && isSelected ? 'bg-blue-100 border-blue-500 ring-2 ring-blue-500' : 'border-slate-300'}
-                                        ${isIncorrect ? '!bg-red-100 !border-red-500' : ''}
-                                        ${!isMatched ? 'hover:bg-blue-50' : ''}
-                                    `}
-                                >
-                                    {word}
-                                </button>
-                            );
-                        })}
-                    </div>
-                    {/* Greek Words Column */}
-                    <div className="space-y-3">
-                         {greekWords.map(word => {
-                            const pair = pairs.find(p => p.greek_translation === word);
-                            const isMatched = pair && matchedPairs.includes(pair.spanish_word);
-                            const isSelected = selectedGreek === word;
-                            const isIncorrect = incorrectAttempts.includes(word);
-                            return (
-                                <button
-                                    key={word}
-                                    onClick={() => !isMatched && setSelectedGreek(word)}
-                                    disabled={isMatched}
-                                    className={`w-full p-4 text-lg rounded-lg border-2 transition-all duration-200 text-center capitalize font-semibold
-                                        ${isMatched ? 'bg-slate-200 border-slate-200 text-slate-400 cursor-not-allowed' : ''}
-                                        ${!isMatched && isSelected ? 'bg-blue-100 border-blue-500 ring-2 ring-blue-500' : 'border-slate-300'}
-                                        ${isIncorrect ? '!bg-red-100 !border-red-500' : ''}
-                                        ${!isMatched ? 'hover:bg-blue-50' : ''}
-                                    `}
-                                >
-                                    {word}
-                                </button>
-                            );
-                        })}
-                    </div>
+                {/* Definitions Column */}
+                <div className="space-y-3">
+                    {definitions.map((def, index) => (
+                         <button
+                            key={index}
+                            onClick={() => handleDefClick(index)}
+                            disabled={getDefState(index) === 'correct'}
+                            className={`w-full p-4 text-left rounded-lg border-2 transition-all duration-200 ${getButtonClass(getDefState(index))}`}
+                        >
+                            {def}
+                        </button>
+                    ))}
                 </div>
-            )}
+            </div>
+             <div className="mt-8 text-center h-8">
+                {Object.keys(correctPairs).length === items.length && (
+                    <p className="text-lg font-semibold text-green-600">¡Todo correcto! Completando...</p>
+                )}
+            </div>
         </div>
     );
 };

@@ -1,202 +1,122 @@
-// FIX: Create the VerbTenses component
-import React, { useState, useEffect, useCallback } from 'react';
-import { generateVerbTenseQuestions } from '../services/geminiService';
-import { sendResultsEmail } from '../services/emailService';
-import { VerbTenseQuestion } from '../types';
-import LoadingSpinner from './LoadingSpinner';
-import { CheckIcon, XIcon, ArrowLeftIcon } from './icons';
-
-interface User {
-    name: string;
-    teacherEmail: string;
-}
+import React, { useState, useEffect } from 'react';
+import { VerbTensesExercise, VerbConjugationExercise, UserAnswer } from '../types';
 
 interface VerbTensesProps {
-    onBack: () => void;
-    user: User;
+    exercise: VerbTensesExercise | VerbConjugationExercise;
+    onComplete: (answers: UserAnswer[]) => void;
 }
 
-const VerbTenses: React.FC<VerbTensesProps> = ({ onBack, user }) => {
-    const [questions, setQuestions] = useState<VerbTenseQuestion[]>([]);
+const VerbTenses: React.FC<VerbTensesProps> = ({ exercise, onComplete }) => {
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-    const [selectedOption, setSelectedOption] = useState<string | null>(null);
-    const [feedback, setFeedback] = useState<'correct' | 'incorrect' | null>(null);
-    const [score, setScore] = useState(0);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [isFinished, setIsFinished] = useState(false);
-    const [isSending, setIsSending] = useState(false);
-    const [emailStatus, setEmailStatus] = useState<{ success: boolean; message: string } | null>(null);
+    const [currentAnswer, setCurrentAnswer] = useState('');
+    const [userAnswers, setUserAnswers] = useState<UserAnswer[]>([]);
+    const [feedback, setFeedback] = useState<'idle' | 'correct' | 'incorrect'>('idle');
 
-    const fetchQuestions = useCallback(async () => {
-        setIsLoading(true);
-        setError(null);
-        try {
-            const data = await generateVerbTenseQuestions();
-            if(data.length === 0) throw new Error("No questions were generated.");
-            setQuestions(data);
-        } catch (e) {
-            setError(e instanceof Error ? e.message : 'An unknown error occurred.');
-        } finally {
-            setIsLoading(false);
-        }
-    }, []);
+    const currentQuestion = exercise.questions[currentQuestionIndex];
+    const isLastQuestion = currentQuestionIndex === exercise.questions.length - 1;
 
     useEffect(() => {
-        fetchQuestions();
-    }, [fetchQuestions]);
-
-    const handleSelectOption = (option: string) => {
-        if (feedback) return;
-        
-        setSelectedOption(option);
-        const correctAnswer = questions[currentQuestionIndex].correct_answer;
-        if (option === correctAnswer) {
-            setFeedback('correct');
-            setScore(prev => prev + 1);
-        } else {
-            setFeedback('incorrect');
-        }
-    };
-
-    const handleNextQuestion = () => {
-        setFeedback(null);
-        setSelectedOption(null);
-        if (currentQuestionIndex < questions.length - 1) {
-            setCurrentQuestionIndex(prev => prev + 1);
-        } else {
-            setIsFinished(true);
-        }
-    };
-    
-    const restart = () => {
-        setQuestions([]);
         setCurrentQuestionIndex(0);
-        setSelectedOption(null);
-        setFeedback(null);
-        setScore(0);
-        setIsLoading(true);
-        setError(null);
-        setIsFinished(false);
-        setEmailStatus(null);
-        setIsSending(false);
-        fetchQuestions();
-    }
-    
-    const handleSendResults = async () => {
-        setIsSending(true);
-        setEmailStatus(null);
-        const result = await sendResultsEmail({
-            studentName: user.name,
-            teacherEmail: user.teacherEmail,
-            activityName: "Tiempos Verbales",
-            score: score,
-            totalQuestions: questions.length,
-        });
-        setEmailStatus(result);
-        setIsSending(false);
+        setCurrentAnswer('');
+        setUserAnswers([]);
+        setFeedback('idle');
+    }, [exercise]);
+
+    const handleCheck = () => {
+        if (feedback !== 'idle' || !currentAnswer.trim()) return;
+
+        const isCorrect = currentAnswer.trim().toLowerCase() === currentQuestion.correctAnswer.toLowerCase();
+        const feedbackStatus = isCorrect ? 'correct' : 'incorrect';
+        setFeedback(feedbackStatus);
+        
+        const finalAnswers = [
+             ...userAnswers,
+            {
+                questionIndex: currentQuestionIndex,
+                answer: currentAnswer,
+                isCorrect: isCorrect,
+            }
+        ];
+        setUserAnswers(finalAnswers);
+        
+        if (isLastQuestion) {
+             // Delay completion to allow user to see feedback on the last question
+             setTimeout(() => onComplete(finalAnswers), 1500);
+        }
     };
 
-    if (isLoading) return <div className="w-full max-w-2xl mx-auto"><LoadingSpinner /></div>;
-    if (error) return <div className="text-center text-red-500">{error}</div>;
+    const handleNext = () => {
+        if (!isLastQuestion) {
+            setCurrentQuestionIndex(prev => prev + 1);
+            setCurrentAnswer('');
+            setFeedback('idle');
+        }
+    };
 
-    if (isFinished) {
+    const renderSentence = (sentence: string) => {
+        const parts = sentence.split('___');
+        let inputClass = "inline-block w-48 mx-2 px-3 py-2 border-2 rounded-lg transition-all duration-300 focus:outline-none text-lg text-indigo-600 font-semibold ";
+        if (feedback === 'correct') {
+            inputClass += "bg-green-50 border-green-400 text-green-700 ring-2 ring-green-200";
+        } else if (feedback === 'incorrect') {
+            inputClass += "bg-red-50 border-red-400 text-red-700 ring-2 ring-red-200";
+        } else {
+            inputClass += "border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-300";
+        }
+
         return (
-            <div className="text-center p-8 bg-white rounded-xl shadow-lg">
-                <h2 className="text-3xl font-bold text-slate-800">¡Actividad Completada, {user.name}!</h2>
-                <p className="mt-4 text-xl text-slate-600">
-                    Tu puntuación: <span className="font-bold text-blue-600">{score}</span> de <span className="font-bold">{questions.length}</span>
-                </p>
-                <div className="mt-8 flex flex-col items-center space-y-4">
-                    <div className="flex justify-center space-x-4">
-                        <button onClick={onBack} className="px-6 py-2 bg-slate-200 text-slate-800 rounded-lg hover:bg-slate-300 transition-colors">Menú Principal</button>
-                        <button onClick={restart} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">Repetir</button>
-                    </div>
-                     <div className="pt-4 mt-4 border-t w-full max-w-sm mx-auto">
-                        <button 
-                            onClick={handleSendResults} 
-                            disabled={isSending || (emailStatus?.success ?? false)}
-                            className="w-full px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:bg-green-400 disabled:cursor-not-allowed"
-                        >
-                            {isSending ? 'Enviando...' : (emailStatus?.success ? '¡Resultados Enviados!' : 'Enviar Resultados al Profesor')}
-                        </button>
-                        {emailStatus && !emailStatus.success && (
-                            <p className="text-red-500 text-sm mt-2">{emailStatus.message}</p>
-                        )}
-                         {emailStatus?.success && (
-                            <p className="text-green-600 text-sm mt-2">{emailStatus.message}</p>
-                        )}
-                    </div>
-                </div>
-            </div>
+            <p className="text-xl text-slate-700 leading-loose">
+                {parts[0]}
+                <input
+                    type="text"
+                    value={currentAnswer}
+                    onChange={(e) => setCurrentAnswer(e.target.value)}
+                    className={inputClass}
+                    placeholder={currentQuestion.greekVerb}
+                    disabled={feedback !== 'idle'}
+                    onKeyDown={(e) => e.key === 'Enter' && (feedback === 'idle' ? handleCheck() : handleNext())}
+                    aria-label="Respuesta"
+                />
+                {parts[1]}
+            </p>
         );
-    }
-    
-    if (questions.length === 0) return null;
-
-    const currentQuestion = questions[currentQuestionIndex];
+    };
 
     return (
-        <div className="w-full max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-lg relative">
-            <button onClick={onBack} className="absolute top-4 left-4 text-slate-500 hover:text-slate-800">
-                <ArrowLeftIcon className="w-6 h-6"/>
-            </button>
-            <div className="text-center mb-6">
-                <p className="text-slate-500">Pregunta {currentQuestionIndex + 1} de {questions.length}</p>
-                 <div className="w-full bg-slate-200 rounded-full h-2.5 mt-2">
-                    <div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${((currentQuestionIndex + 1) / questions.length) * 100}%` }}></div>
-                </div>
-            </div>
-            
-            <div className="bg-slate-50 p-4 rounded-lg mb-6 text-center">
-                <p className="text-slate-600">Conjuga el verbo <span className="font-bold text-blue-600">{currentQuestion.verb}</span> en <span className="font-bold text-blue-600">{currentQuestion.tense}</span>.</p>
-                <p className="text-2xl text-slate-700 leading-relaxed mt-2">
-                    {currentQuestion.sentence_start}
-                    <span className="inline-block w-32 mx-1 border-b-2 border-dashed border-slate-400 align-middle">
-                        {feedback && <span className={`font-bold ${feedback === 'correct' ? 'text-green-600' : 'text-red-600'}`}>{currentQuestion.correct_answer}</span>}
-                    </span>
-                    {currentQuestion.sentence_end}
-                </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {currentQuestion.options.map(option => (
-                    <button
-                        key={option}
-                        onClick={() => handleSelectOption(option)}
-                        disabled={feedback !== null}
-                        className={`w-full text-center p-4 rounded-lg border-2 transition-all duration-200
-                            ${feedback === null ? 'hover:bg-blue-50 hover:border-blue-500' : ''}
-                            ${selectedOption === option ? 
-                                (feedback === 'correct' ? 'bg-green-100 border-green-500 text-green-800' : 'bg-red-100 border-red-500 text-red-800') :
-                                'bg-white border-slate-300'
-                            }
-                             ${feedback !== null && option !== currentQuestion.correct_answer && selectedOption !== option ? 'opacity-50' : ''}
-                             ${feedback !== null && option === currentQuestion.correct_answer ? '!bg-green-100 !border-green-500 !text-green-800' : ''}
-                        `}
-                    >
-                        {option}
-                    </button>
-                ))}
-            </div>
-
-            {feedback && (
-                <div className={`mt-6 p-4 rounded-lg flex flex-col items-center justify-center text-center text-lg ${feedback === 'correct' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                     <div className="flex items-center">
-                        {feedback === 'correct' ? <CheckIcon className="w-6 h-6 mr-2"/> : <XIcon className="w-6 h-6 mr-2"/>}
-                        {feedback === 'correct' ? '¡Correcto!' : `Incorrecto.`}
+        <div className="w-full max-w-2xl mx-auto bg-white p-8 sm:p-10 rounded-2xl shadow-xl border border-slate-100">
+            <h2 className="text-3xl font-bold text-center text-slate-800 mb-2">{exercise.title}</h2>
+            <p className="text-center text-slate-500 mb-8">{exercise.instructions}</p>
+            <div className="my-8">
+                 <div className="p-4 min-h-[180px] flex flex-col justify-center">
+                    <div className="flex items-center">
+                        <span className="mr-4 text-2xl font-bold text-indigo-500">{currentQuestionIndex + 1}.</span>
+                        {renderSentence(currentQuestion.sentence)}
                     </div>
-                    <p className="mt-2 text-sm">{currentQuestion.explanation}</p>
+                     {feedback === 'incorrect' && (
+                        <p className="ml-12 mt-3 text-md text-green-700 transition-opacity duration-300 animate-pulse">
+                            Respuesta correcta: <span className="font-bold">{currentQuestion.correctAnswer}</span>
+                        </p>
+                    )}
                 </div>
-            )}
-            
-            {feedback && (
-                <div className="mt-6 flex justify-center">
-                    <button onClick={handleNextQuestion} className="px-8 py-3 bg-slate-700 text-white font-semibold rounded-lg shadow-md hover:bg-slate-800 transition-all duration-200">
-                        Siguiente
+            </div>
+            <div className="mt-8 text-center">
+                {feedback === 'idle' ? (
+                    <button
+                        onClick={handleCheck}
+                        disabled={!currentAnswer.trim()}
+                        className="w-full sm:w-auto px-10 py-3 border border-transparent rounded-lg shadow-sm text-base font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-slate-400 disabled:cursor-not-allowed transition-colors"
+                    >
+                        Comprobar
                     </button>
-                </div>
-            )}
+                ) : (
+                    <button
+                        onClick={isLastQuestion ? () => onComplete(userAnswers) : handleNext}
+                        className="w-full sm:w-auto px-10 py-3 border border-transparent rounded-lg shadow-sm text-base font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors"
+                    >
+                        {isLastQuestion ? 'Finalizar Ejercicio' : 'Siguiente'}
+                    </button>
+                )}
+            </div>
         </div>
     );
 };

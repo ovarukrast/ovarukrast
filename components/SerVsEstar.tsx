@@ -1,196 +1,128 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { generateSerVsEstarQuestions } from '../services/geminiService';
-import { sendResultsEmail } from '../services/emailService';
-import { SerEstarQuestion } from '../types';
-import LoadingSpinner from './LoadingSpinner';
-import { CheckIcon, XIcon, ArrowLeftIcon } from './icons';
-
-interface User {
-    name: string;
-    teacherEmail: string;
-}
+import React, { useState, useEffect } from 'react';
+import { SerVsEstarExercise, UserAnswer } from '../types';
+import { CheckCircleIcon, XCircleIcon } from './icons';
 
 interface SerVsEstarProps {
-    onBack: () => void;
-    user: User;
+    exercise: SerVsEstarExercise;
+    onComplete: (answers: UserAnswer[]) => void;
 }
 
-const SerVsEstar: React.FC<SerVsEstarProps> = ({ onBack, user }) => {
-    const [questions, setQuestions] = useState<SerEstarQuestion[]>([]);
+const SerVsEstar: React.FC<SerVsEstarProps> = ({ exercise, onComplete }) => {
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-    const [selectedOption, setSelectedOption] = useState<'ser' | 'estar' | null>(null);
-    const [feedback, setFeedback] = useState<'correct' | 'incorrect' | null>(null);
-    const [score, setScore] = useState(0);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [isFinished, setIsFinished] = useState(false);
-    const [isSending, setIsSending] = useState(false);
-    const [emailStatus, setEmailStatus] = useState<{ success: boolean; message: string } | null>(null);
+    const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
+    const [userAnswers, setUserAnswers] = useState<UserAnswer[]>([]);
+    const [feedback, setFeedback] = useState<'idle' | 'correct' | 'incorrect'>('idle');
 
-    const fetchQuestions = useCallback(async () => {
-        setIsLoading(true);
-        setError(null);
-        try {
-            const data = await generateSerVsEstarQuestions();
-            if(data.length === 0) throw new Error("No questions were generated.");
-            setQuestions(data);
-        } catch (e) {
-            setError(e instanceof Error ? e.message : 'An unknown error occurred.');
-        } finally {
-            setIsLoading(false);
-        }
-    }, []);
+    const currentQuestion = exercise.questions[currentQuestionIndex];
+    const isLastQuestion = currentQuestionIndex === exercise.questions.length - 1;
 
     useEffect(() => {
-        fetchQuestions();
-    }, [fetchQuestions]);
-
-    const handleSelectOption = (option: 'ser' | 'estar') => {
-        if (feedback) return;
-        setSelectedOption(option);
-        if (option === questions[currentQuestionIndex].correct_option) {
-            setFeedback('correct');
-            setScore(prev => prev + 1);
-        } else {
-            setFeedback('incorrect');
-        }
-    };
-
-    const handleNextQuestion = () => {
-        setFeedback(null);
-        setSelectedOption(null);
-        if (currentQuestionIndex < questions.length - 1) {
-            setCurrentQuestionIndex(prev => prev + 1);
-        } else {
-            setIsFinished(true);
-        }
-    };
-    
-    const restart = () => {
-        setQuestions([]);
         setCurrentQuestionIndex(0);
-        setSelectedOption(null);
-        setFeedback(null);
-        setScore(0);
-        setIsLoading(true);
-        setError(null);
-        setIsFinished(false);
-        setEmailStatus(null);
-        setIsSending(false);
-        fetchQuestions();
-    }
-    
-    const handleSendResults = async () => {
-        setIsSending(true);
-        setEmailStatus(null);
-        const result = await sendResultsEmail({
-            studentName: user.name,
-            teacherEmail: user.teacherEmail,
-            activityName: "Ser vs. Estar",
-            score: score,
-            totalQuestions: questions.length,
-        });
-        setEmailStatus(result);
-        setIsSending(false);
+        setSelectedAnswer(null);
+        setUserAnswers([]);
+        setFeedback('idle');
+    }, [exercise]);
+
+    const handleAnswerSelect = (option: string) => {
+        if (feedback !== 'idle') return;
+        setSelectedAnswer(option);
     };
 
-    if (isLoading) return <div className="w-full max-w-2xl mx-auto"><LoadingSpinner /></div>;
-    if (error) return <div className="text-center text-red-500">{error}</div>;
+    const handleCheck = () => {
+        if (feedback !== 'idle' || selectedAnswer === null) return;
 
-    if (isFinished) {
-        return (
-            <div className="text-center p-8 bg-white rounded-xl shadow-lg">
-                <h2 className="text-3xl font-bold text-slate-800">¡Actividad Completada, {user.name}!</h2>
-                <p className="mt-4 text-xl text-slate-600">
-                    Tu puntuación: <span className="font-bold text-blue-600">{score}</span> de <span className="font-bold">{questions.length}</span>
-                </p>
-                <div className="mt-8 flex flex-col items-center space-y-4">
-                    <div className="flex justify-center space-x-4">
-                        <button onClick={onBack} className="px-6 py-2 bg-slate-200 text-slate-800 rounded-lg hover:bg-slate-300 transition-colors">Menú Principal</button>
-                        <button onClick={restart} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">Repetir</button>
-                    </div>
-                    <div className="pt-4 mt-4 border-t w-full max-w-sm mx-auto">
-                        <button 
-                            onClick={handleSendResults} 
-                            disabled={isSending || (emailStatus?.success ?? false)}
-                            className="w-full px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:bg-green-400 disabled:cursor-not-allowed"
-                        >
-                            {isSending ? 'Enviando...' : (emailStatus?.success ? '¡Resultados Enviados!' : 'Enviar Resultados al Profesor')}
-                        </button>
-                        {emailStatus && !emailStatus.success && (
-                            <p className="text-red-500 text-sm mt-2">{emailStatus.message}</p>
-                        )}
-                         {emailStatus?.success && (
-                            <p className="text-green-600 text-sm mt-2">{emailStatus.message}</p>
-                        )}
-                    </div>
-                </div>
-            </div>
-        );
-    }
-    
-    if (questions.length === 0) return null;
+        const isCorrect = selectedAnswer === currentQuestion.correctAnswer;
+        const feedbackStatus = isCorrect ? 'correct' : 'incorrect';
+        setFeedback(feedbackStatus);
 
-    const currentQuestion = questions[currentQuestionIndex];
-    const sentenceParts = currentQuestion.sentence.split('__');
+        const finalAnswers = [
+            ...userAnswers,
+            {
+                questionIndex: currentQuestionIndex,
+                answer: selectedAnswer,
+                isCorrect: isCorrect,
+            }
+        ];
+        setUserAnswers(finalAnswers);
+
+        if (isLastQuestion && feedbackStatus === 'correct') {
+            setTimeout(() => onComplete(finalAnswers), 1500);
+        }
+         if (isLastQuestion && feedbackStatus === 'incorrect') {
+            setTimeout(() => onComplete(finalAnswers), 2500);
+        }
+    };
+
+    const handleNext = () => {
+        if (!isLastQuestion) {
+            setCurrentQuestionIndex(prev => prev + 1);
+            setSelectedAnswer(null);
+            setFeedback('idle');
+        }
+    };
+
+    const renderSentenceWithBlank = (sentence: string) => {
+        return sentence.replace('___', '[___]');
+    };
 
     return (
-        <div className="w-full max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-lg relative">
-            <button onClick={onBack} className="absolute top-4 left-4 text-slate-500 hover:text-slate-800">
-                <ArrowLeftIcon className="w-6 h-6"/>
-            </button>
-            <div className="text-center mb-6">
-                <p className="text-slate-500">Pregunta {currentQuestionIndex + 1} de {questions.length}</p>
-                 <div className="w-full bg-slate-200 rounded-full h-2.5 mt-2">
-                    <div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${((currentQuestionIndex + 1) / questions.length) * 100}%` }}></div>
-                </div>
-            </div>
+        <div className="w-full max-w-2xl mx-auto bg-white p-8 sm:p-10 rounded-2xl shadow-xl border border-slate-100">
+            <h2 className="text-3xl font-bold text-center text-slate-800 mb-2">{exercise.title}</h2>
+            <p className="text-center text-slate-500 mb-8">Elige la opción correcta para completar la frase.</p>
             
-            <p className="text-2xl text-center text-slate-700 leading-relaxed mb-8">
-                {sentenceParts[0]}
-                <span className="inline-block w-32 mx-1 border-b-2 border-dashed border-slate-400 align-middle">
-                    {feedback && <span className={`font-bold ${feedback === 'correct' ? 'text-green-600' : 'text-red-600'}`}>{currentQuestion.correct_conjugation}</span>}
-                </span>
-                {sentenceParts[1]}
-            </p>
+            <div className="my-8">
+                <div className="p-4 min-h-[250px] flex flex-col justify-center">
+                    <p className="text-center text-2xl text-slate-700 mb-8">
+                        {renderSentenceWithBlank(currentQuestion.sentence)}
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {currentQuestion.options.map((option) => {
+                            const isSelected = selectedAnswer === option;
+                            let buttonClass = "w-full p-4 rounded-lg border-2 text-lg font-semibold transition-all duration-200 disabled:opacity-70 ";
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8">
-                {currentQuestion.options.map(option => (
-                    <button
-                        key={option}
-                        onClick={() => handleSelectOption(option)}
-                        disabled={feedback !== null}
-                        className={`p-4 text-xl font-bold rounded-lg border-2 transition-all duration-200
-                            ${feedback === null ? 'hover:bg-blue-50 hover:border-blue-500' : ''}
-                            ${selectedOption === option ? 
-                                (feedback === 'correct' ? 'bg-green-100 border-green-500 text-green-800' : 'bg-red-100 border-red-500 text-red-800') :
-                                'bg-white border-slate-300'
+                            if (feedback === 'idle') {
+                                buttonClass += isSelected 
+                                    ? 'bg-indigo-100 border-indigo-500 ring-2 ring-indigo-300' 
+                                    : 'bg-white hover:bg-slate-50 border-slate-300';
+                            } else {
+                                const isCorrectAnswer = option === currentQuestion.correctAnswer;
+                                if (isCorrectAnswer) {
+                                    buttonClass += 'bg-green-100 border-green-500 text-green-800';
+                                } else if (isSelected && !isCorrectAnswer) {
+                                    buttonClass += 'bg-red-100 border-red-500 text-red-800';
+                                } else {
+                                     buttonClass += 'bg-slate-100 border-slate-300 text-slate-500';
+                                }
                             }
-                            ${feedback !== null && option !== currentQuestion.correct_option ? 'opacity-50' : ''}
-                        `}
-                    >
-                        {option}
-                    </button>
-                ))}
+                            
+                            return (
+                                <button key={option} onClick={() => handleAnswerSelect(option)} className={buttonClass} disabled={feedback !== 'idle'}>
+                                    {option}
+                                </button>
+                            );
+                        })}
+                    </div>
+
+                    {feedback === 'incorrect' && (
+                         <div className="mt-6 p-4 bg-green-50 border-l-4 border-green-400">
+                            <h4 className="font-bold text-green-800">Explicación:</h4>
+                            <p className="text-green-700">{currentQuestion.explanation}</p>
+                        </div>
+                    )}
+                </div>
             </div>
 
-            {feedback && (
-                <div className={`mt-6 p-4 rounded-lg flex flex-col items-center justify-center text-center text-lg ${feedback === 'correct' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                     <div className="flex items-center">
-                        {feedback === 'correct' ? <CheckIcon className="w-6 h-6 mr-2"/> : <XIcon className="w-6 h-6 mr-2"/>}
-                        {feedback === 'correct' ? '¡Correcto!' : `Incorrecto. Es "${currentQuestion.correct_option}".`}
-                    </div>
-                    <p className="mt-2 text-sm">{currentQuestion.explanation}</p>
-                </div>
-            )}
-            
-            {feedback && (
-                <div className="mt-6 flex justify-center">
-                    <button onClick={handleNextQuestion} className="px-8 py-3 bg-slate-700 text-white font-semibold rounded-lg shadow-md hover:bg-slate-800 transition-all duration-200">
-                        Siguiente
+            <div className="mt-8 text-center">
+                {feedback === 'idle' ? (
+                    <button onClick={handleCheck} disabled={selectedAnswer === null} className="w-full sm:w-auto px-10 py-3 border border-transparent rounded-lg shadow-sm text-base font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-slate-400 disabled:cursor-not-allowed transition-colors">
+                        Comprobar
                     </button>
-                </div>
-            )}
+                ) : (
+                    <button onClick={isLastQuestion ? () => onComplete(userAnswers) : handleNext} className="w-full sm:w-auto px-10 py-3 border border-transparent rounded-lg shadow-sm text-base font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors">
+                        {isLastQuestion ? 'Finalizar Ejercicio' : 'Siguiente'}
+                    </button>
+                )}
+            </div>
         </div>
     );
 };
