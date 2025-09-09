@@ -1,127 +1,107 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState } from 'react';
 import { ReadingComprehensionExercise, UserAnswer } from '../types';
+import { CheckCircleIcon, XCircleIcon } from './icons';
 
 interface ReadingComprehensionProps {
     exercise: ReadingComprehensionExercise;
-    onComplete: (answers: UserAnswer[]) => void;
+    onFinish: (answers: UserAnswer[]) => void;
 }
 
-const ReadingComprehension: React.FC<ReadingComprehensionProps> = ({ exercise, onComplete }) => {
-    const [view, setView] = useState<'reading' | 'questions'>('reading');
-    const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-    const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
-    const [userAnswers, setUserAnswers] = useState<UserAnswer[]>([]);
-    const [feedback, setFeedback] = useState<'idle' | 'correct' | 'incorrect'>('idle');
+const ReadingComprehension: React.FC<ReadingComprehensionProps> = ({ exercise, onFinish }) => {
+    const [answers, setAnswers] = useState<Record<number, string>>({});
+    const [submitted, setSubmitted] = useState(false);
 
-    const currentQuestion = exercise.questions[currentQuestionIndex];
-    const isLastQuestion = currentQuestionIndex === exercise.questions.length - 1;
-
-     useEffect(() => {
-        setView('reading');
-        setCurrentQuestionIndex(0);
-        setSelectedAnswer(null);
-        setUserAnswers([]);
-        setFeedback('idle');
-    }, [exercise]);
-
-    const handleAnswerSelect = (option: string) => {
-        if (feedback !== 'idle') return;
-        setSelectedAnswer(option);
+    const handleOptionChange = (questionIndex: number, option: string) => {
+        setAnswers(prev => ({ ...prev, [questionIndex]: option }));
     };
 
-    const handleCheck = () => {
-        if (feedback !== 'idle' || selectedAnswer === null) return;
-
-        const isCorrect = selectedAnswer === currentQuestion.correctAnswer;
-        const feedbackStatus = isCorrect ? 'correct' : 'incorrect';
-        setFeedback(feedbackStatus);
-
-        const finalAnswers = [
-            ...userAnswers,
-            {
-                questionIndex: currentQuestionIndex,
-                answer: selectedAnswer,
-                isCorrect: isCorrect,
-            }
-        ];
-        setUserAnswers(finalAnswers);
-         
-        if (isLastQuestion) {
-             setTimeout(() => onComplete(finalAnswers), 1500);
-        }
+    const handleSubmit = () => {
+        setSubmitted(true);
     };
 
-    const handleNext = () => {
-        if (!isLastQuestion) {
-            setCurrentQuestionIndex(prev => prev + 1);
-            setSelectedAnswer(null);
-            setFeedback('idle');
-        }
+    const handleFinish = () => {
+        const results: UserAnswer[] = exercise.questions.map((q, index) => ({
+            questionIndex: index,
+            answer: answers[index] || "",
+            isCorrect: answers[index] === q.correctAnswer,
+        }));
+        onFinish(results);
     };
 
-    if (view === 'reading') {
-        return (
-             <div className="w-full max-w-3xl mx-auto bg-white p-8 sm:p-10 rounded-2xl shadow-xl border border-slate-100">
-                <h2 className="text-3xl font-bold text-slate-800 mb-4">{exercise.title}</h2>
-                <div className="prose max-w-none bg-slate-50 p-6 rounded-lg my-6 text-slate-700">
-                    <p className="whitespace-pre-wrap">{exercise.text}</p>
-                </div>
-                <div className="text-center">
-                    <button onClick={() => setView('questions')} className="w-full sm:w-auto px-10 py-3 border border-transparent rounded-lg shadow-sm text-base font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors">
-                        Empezar Preguntas
-                    </button>
-                </div>
-            </div>
-        )
-    }
+    const isAllAnswered = Object.keys(answers).length === exercise.questions.length;
 
     return (
-        <div className="w-full max-w-2xl mx-auto bg-white p-8 sm:p-10 rounded-2xl shadow-xl border border-slate-100">
-            <h2 className="text-2xl font-bold text-center text-slate-800 mb-2">{exercise.title}</h2>
-            <p className="text-center text-slate-500 mb-8">Pregunta {currentQuestionIndex + 1} de {exercise.questions.length}</p>
-
-            <div className="my-8">
-                <div className="p-4 min-h-[250px] flex flex-col justify-center">
-                    <p className="text-xl font-semibold text-slate-800 mb-6 text-center">{currentQuestion.question}</p>
-                    <div className="space-y-3">
-                        {currentQuestion.options.map((option) => {
-                             const isSelected = selectedAnswer === option;
-                             let optionClass = "w-full p-4 text-left rounded-lg border-2 text-md transition-all duration-200 flex items-center space-x-3 ";
-
-                             if (feedback === 'idle') {
-                                optionClass += isSelected 
-                                    ? 'bg-indigo-100 border-indigo-500 ring-2 ring-indigo-300' 
-                                    : 'bg-white hover:bg-slate-50 border-slate-300 cursor-pointer';
-                             } else {
-                                const isCorrectAnswer = option === currentQuestion.correctAnswer;
-                                optionClass += 'cursor-default ';
-                                if(isCorrectAnswer) {
-                                    optionClass += 'bg-green-50 border-green-400 text-green-800';
-                                } else if (isSelected && !isCorrectAnswer) {
-                                    optionClass += 'bg-red-50 border-red-400 text-red-800';
-                                } else {
-                                    optionClass += 'bg-slate-50 border-slate-200 text-slate-500';
-                                }
-                             }
-
-                            return (
-                                <button key={option} onClick={() => handleAnswerSelect(option)} className={optionClass} disabled={feedback !== 'idle'}>
-                                    <span>{option}</span>
-                                </button>
-                            );
-                        })}
-                    </div>
-                </div>
-            </div>
+        <div className="bg-white p-6 sm:p-8 rounded-lg shadow-lg">
+            <h2 className="text-3xl font-bold text-slate-800 mb-2">{exercise.title}</h2>
+            <p className="text-slate-600 mb-6">Lee el siguiente texto y responde a las preguntas.</p>
             
-            <div className="mt-8 text-center">
-                {feedback === 'idle' ? (
-                    <button onClick={handleCheck} disabled={selectedAnswer === null} className="w-full sm:w-auto px-10 py-3 border border-transparent rounded-lg shadow-sm text-base font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-slate-400 disabled:cursor-not-allowed transition-colors">
-                        Comprobar
+            <div className="bg-slate-50 p-6 rounded-lg mb-8 prose prose-slate max-w-none">
+                <p>{exercise.text}</p>
+            </div>
+
+            <div className="space-y-8">
+                {exercise.questions.map((q, index) => {
+                    const userAnswer = answers[index];
+                    const isCorrect = userAnswer === q.correctAnswer;
+                    
+                    return (
+                        <div key={index}>
+                            <p className="text-lg font-semibold text-slate-700 mb-4">{index + 1}. {q.question}</p>
+                            <div className="space-y-3">
+                                {q.options.map(option => {
+                                    const isSelected = userAnswer === option;
+                                    let buttonClass = "w-full text-left p-4 rounded-lg border-2 transition-colors duration-200 flex items-center ";
+                                    if (submitted) {
+                                        if (option === q.correctAnswer) {
+                                            buttonClass += "bg-green-100 border-green-400 text-green-800";
+                                        } else if (isSelected && !isCorrect) {
+                                            buttonClass += "bg-red-100 border-red-400 text-red-800";
+                                        } else {
+                                            buttonClass += "bg-slate-50 border-slate-200 text-slate-600";
+                                        }
+                                    } else {
+                                        buttonClass += isSelected 
+                                            ? "bg-blue-100 border-blue-500 ring-2 ring-blue-300" 
+                                            : "bg-white border-slate-300 hover:bg-slate-50 hover:border-slate-400";
+                                    }
+
+                                    return (
+                                        <button
+                                            key={option}
+                                            onClick={() => !submitted && handleOptionChange(index, option)}
+                                            disabled={submitted}
+                                            className={buttonClass}
+                                        >
+                                            {submitted && (
+                                                option === q.correctAnswer ? <CheckCircleIcon className="h-5 w-5 mr-3 text-green-500" /> :
+                                                (isSelected && !isCorrect ? <XCircleIcon className="h-5 w-5 mr-3 text-red-500" /> : <div className="h-5 w-5 mr-3"></div>)
+                                            )}
+                                            {option}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+
+            <div className="mt-10 text-center">
+                 {submitted ? (
+                    <button
+                        onClick={handleFinish}
+                        className="bg-purple-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-purple-700 transition-colors disabled:bg-slate-300"
+                    >
+                        Ver Resultados
                     </button>
                 ) : (
-                    <button onClick={isLastQuestion ? () => onComplete(userAnswers) : handleNext} className="w-full sm:w-auto px-10 py-3 border border-transparent rounded-lg shadow-sm text-base font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors">
-                        {isLastQuestion ? 'Finalizar Ejercicio' : 'Siguiente'}
+                    <button
+                        onClick={handleSubmit}
+                        disabled={!isAllAnswered}
+                        className="bg-blue-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-slate-300"
+                    >
+                        Revisar Respuestas
                     </button>
                 )}
             </div>

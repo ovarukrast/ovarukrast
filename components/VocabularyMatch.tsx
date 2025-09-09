@@ -1,135 +1,164 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { VocabularyMatchExercise, UserAnswer } from '../types';
 
-// Helper to shuffle an array
+import React, { useState, useEffect } from 'react';
+import { VocabularyMatchExercise, UserAnswer } from '../types';
+import { CheckCircleIcon, XCircleIcon } from './icons';
+
+interface VocabularyMatchProps {
+    exercise: VocabularyMatchExercise;
+    onFinish: (answers: UserAnswer[]) => void;
+}
+
 const shuffleArray = <T,>(array: T[]): T[] => {
     return [...array].sort(() => Math.random() - 0.5);
 };
 
-interface VocabularyMatchProps {
-    exercise: VocabularyMatchExercise;
-    onComplete: (answers: UserAnswer[]) => void;
-}
+const VocabularyMatch: React.FC<VocabularyMatchProps> = ({ exercise, onFinish }) => {
+    const [selectedWord, setSelectedWord] = useState<string | null>(null);
+    const [selectedDefinition, setSelectedDefinition] = useState<string | null>(null);
+    const [matches, setMatches] = useState<Record<string, string>>({}); // { word: definition }
+    const [submitted, setSubmitted] = useState(false);
+    
+    // Shuffle definitions once on component mount
+    const [shuffledDefinitions, setShuffledDefinitions] = useState<string[]>([]);
+    useEffect(() => {
+        setShuffledDefinitions(shuffleArray(exercise.items.map(item => item.definition)));
+    }, [exercise.items]);
 
-const VocabularyMatch: React.FC<VocabularyMatchProps> = ({ exercise, onComplete }) => {
-    const { items } = exercise;
-    const words = useMemo(() => items.map(item => item.word), [items]);
-    const definitions = useMemo(() => shuffleArray(items.map(item => item.definition)), [items]);
-    const originalDefinitionIndices = useMemo(() => definitions.map(def => items.findIndex(item => item.definition === def)), [definitions, items]);
-
-    const [selectedWordIndex, setSelectedWordIndex] = useState<number | null>(null);
-    const [selectedDefIndex, setSelectedDefIndex] = useState<number | null>(null);
-    const [correctPairs, setCorrectPairs] = useState<Record<number, number>>({}); // { wordIndex: defIndex }
-    const [incorrectPair, setIncorrectPair] = useState<{ word: number; def: number } | null>(null);
-
-    const onCompleteCallback = useCallback(onComplete, []);
 
     useEffect(() => {
-        const totalCorrect = Object.keys(correctPairs).length;
-        if (totalCorrect > 0 && totalCorrect === items.length) {
-            const results: UserAnswer[] = items.map((item, index) => ({
-                questionIndex: index,
-                answer: definitions[correctPairs[index]],
-                isCorrect: true,
-            }));
-             // Delay to allow final animation
-            setTimeout(() => onCompleteCallback(results), 500);
+        if (selectedWord && selectedDefinition) {
+            setMatches(prev => ({ ...prev, [selectedWord]: selectedDefinition }));
+            setSelectedWord(null);
+            setSelectedDefinition(null);
         }
-    }, [correctPairs, items, definitions, onCompleteCallback]);
+    }, [selectedWord, selectedDefinition]);
 
-
-    const handleSelection = (wordIndex: number | null, defIndex: number | null) => {
-        if (wordIndex === null || defIndex === null) return;
-        
-        const isMatchCorrect = originalDefinitionIndices[defIndex] === wordIndex;
-
-        if (isMatchCorrect) {
-            setCorrectPairs(prev => ({ ...prev, [wordIndex]: defIndex }));
+    const handleWordSelect = (word: string) => {
+        if (matches[word]) { // Unmatch
+            const newMatches = {...matches};
+            delete newMatches[word];
+            setMatches(newMatches);
         } else {
-            setIncorrectPair({ word: wordIndex, def: defIndex });
-            setTimeout(() => setIncorrectPair(null), 500);
+             setSelectedWord(word);
         }
-
-        setSelectedWordIndex(null);
-        setSelectedDefIndex(null);
-    };
-
-    const handleWordClick = (index: number) => {
-        if (Object.keys(correctPairs).map(Number).includes(index)) return;
-        setSelectedWordIndex(index);
-        handleSelection(index, selectedDefIndex);
-    };
-
-    const handleDefClick = (index: number) => {
-        if (Object.values(correctPairs).includes(index)) return;
-        setSelectedDefIndex(index);
-        handleSelection(selectedWordIndex, index);
-    };
-
-    const getWordState = (index: number) => {
-        if (Object.keys(correctPairs).map(Number).includes(index)) return 'correct';
-        if (incorrectPair?.word === index) return 'incorrect';
-        if (selectedWordIndex === index) return 'selected';
-        return 'idle';
     };
     
-    const getDefState = (index: number) => {
-        if (Object.values(correctPairs).includes(index)) return 'correct';
-        if (incorrectPair?.def === index) return 'incorrect';
-        if (selectedDefIndex === index) return 'selected';
-        return 'idle';
-    };
-
-    const getButtonClass = (state: 'idle' | 'selected' | 'correct' | 'incorrect') => {
-        switch (state) {
-            case 'correct':
-                return 'bg-green-100 text-green-800 border-green-300 cursor-default';
-            case 'incorrect':
-                return 'bg-red-100 border-red-400 animate-pulse';
-            case 'selected':
-                return 'bg-indigo-100 border-indigo-400 ring-2 ring-indigo-300';
-            case 'idle':
-            default:
-                return 'bg-white hover:bg-slate-50 border-slate-300';
+    const handleDefinitionSelect = (definition: string) => {
+        const isAlreadyMatched = Object.values(matches).includes(definition);
+         if (isAlreadyMatched) { // Unmatch
+            const wordToUnmatch = Object.keys(matches).find(key => matches[key] === definition);
+            if(wordToUnmatch) {
+                const newMatches = {...matches};
+                delete newMatches[wordToUnmatch];
+                setMatches(newMatches);
+            }
+        } else {
+            setSelectedDefinition(definition);
         }
     };
+    
+    const handleSubmit = () => {
+        setSubmitted(true);
+    };
 
+    const handleFinish = () => {
+         const results: UserAnswer[] = exercise.items.map((item, index) => {
+            const userAnswer = matches[item.word] || "";
+            return {
+                questionIndex: index,
+                answer: userAnswer,
+                isCorrect: userAnswer === item.definition,
+            };
+        });
+        onFinish(results);
+    };
+
+    const isAllMatched = Object.keys(matches).length === exercise.items.length;
 
     return (
-        <div className="w-full max-w-3xl mx-auto bg-white p-8 rounded-2xl shadow-xl border border-slate-100">
-            <h2 className="text-3xl font-bold text-center text-slate-800 mb-2">{exercise.title}</h2>
-            <p className="text-center text-slate-500 mb-8">{exercise.instructions}</p>
+        <div className="bg-white p-6 sm:p-8 rounded-lg shadow-lg">
+            <h2 className="text-3xl font-bold text-slate-800 mb-2">{exercise.title}</h2>
+            <p className="text-slate-600 mb-8">{exercise.instructions}</p>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 {/* Words Column */}
                 <div className="space-y-3">
-                    {words.map((word, index) => (
-                        <button
-                            key={index}
-                            onClick={() => handleWordClick(index)}
-                            disabled={getWordState(index) === 'correct'}
-                            className={`w-full p-4 text-left rounded-lg border-2 transition-all duration-200 ${getButtonClass(getWordState(index))}`}
-                        >
-                            {word}
-                        </button>
-                    ))}
+                    {exercise.items.map(item => {
+                        const isSelected = selectedWord === item.word;
+                        const isMatched = !!matches[item.word];
+                        let isCorrect: boolean | null = null;
+                        if(submitted && isMatched) {
+                            const originalItem = exercise.items.find(i => i.word === item.word);
+                            isCorrect = originalItem?.definition === matches[item.word];
+                        }
+                        
+                        return (
+                            <button
+                                key={item.word}
+                                onClick={() => !submitted && handleWordSelect(item.word)}
+                                disabled={submitted}
+                                className={`w-full p-4 text-left rounded-lg border-2 transition-all duration-200 flex items-center justify-between ${
+                                    isSelected ? "border-blue-500 bg-blue-100 ring-2 ring-blue-300" :
+                                    isMatched ? (submitted ? (isCorrect ? "bg-green-100 border-green-400" : "bg-red-100 border-red-400") : "bg-slate-200 border-slate-300") :
+                                    "bg-white border-slate-300 hover:bg-slate-50"
+                                }`}
+                            >
+                                <span className={isMatched && submitted ? (isCorrect ? "text-green-800" : "text-red-800") : "text-slate-800"}>{item.word}</span>
+                                {isMatched && submitted && (
+                                    isCorrect ? <CheckCircleIcon className="h-5 w-5 text-green-500" /> : <XCircleIcon className="h-5 w-5 text-red-500" />
+                                )}
+                            </button>
+                        );
+                    })}
                 </div>
+
                 {/* Definitions Column */}
                 <div className="space-y-3">
-                    {definitions.map((def, index) => (
-                         <button
-                            key={index}
-                            onClick={() => handleDefClick(index)}
-                            disabled={getDefState(index) === 'correct'}
-                            className={`w-full p-4 text-left rounded-lg border-2 transition-all duration-200 ${getButtonClass(getDefState(index))}`}
-                        >
-                            {def}
-                        </button>
-                    ))}
+                    {shuffledDefinitions.map(definition => {
+                        const isSelected = selectedDefinition === definition;
+                        const matchedWord = Object.keys(matches).find(key => matches[key] === definition);
+                        const isMatched = !!matchedWord;
+
+                        let isCorrect: boolean | null = null;
+                        if(submitted && isMatched && matchedWord) {
+                            const originalItem = exercise.items.find(i => i.word === matchedWord);
+                            isCorrect = originalItem?.definition === definition;
+                        }
+
+                        return (
+                            <button
+                                key={definition}
+                                onClick={() => !submitted && handleDefinitionSelect(definition)}
+                                disabled={submitted}
+                                className={`w-full p-4 text-left rounded-lg border-2 transition-all duration-200 ${
+                                    isSelected ? "border-blue-500 bg-blue-100 ring-2 ring-blue-300" :
+                                    isMatched ? (submitted ? (isCorrect ? "bg-green-100 border-green-400" : "bg-red-100 border-red-400") : "bg-slate-200 border-slate-300") :
+                                    "bg-white border-slate-300 hover:bg-slate-50"
+                                }`}
+                            >
+                                 <span className={isMatched && submitted ? (isCorrect ? "text-green-800" : "text-red-800") : "text-slate-600"}>{definition}</span>
+                            </button>
+                        );
+                    })}
                 </div>
             </div>
-             <div className="mt-8 text-center h-8">
-                {Object.keys(correctPairs).length === items.length && (
-                    <p className="text-lg font-semibold text-green-600">¡Todo correcto! Completando...</p>
+
+             <div className="mt-10 text-center">
+                 {submitted ? (
+                    <button
+                        onClick={handleFinish}
+                        className="bg-purple-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-purple-700 transition-colors disabled:bg-slate-300"
+                    >
+                        Ver Resultados
+                    </button>
+                ) : (
+                    <button
+                        onClick={handleSubmit}
+                        disabled={!isAllMatched}
+                        className="bg-blue-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-slate-300"
+                    >
+                        Revisar Respuestas
+                    </button>
                 )}
             </div>
         </div>

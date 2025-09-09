@@ -1,62 +1,54 @@
-import React, { useState } from 'react';
+
+import React from 'react';
+import { ActivityType } from '../types';
+import ActivityCard from './ActivityCard';
+import { BookOpenIcon, PencilIcon, ArrowsRightLeftIcon, ChatBubbleLeftRightIcon, ClockIcon, ChartBarIcon } from './icons';
 
 interface WelcomeScreenProps {
-    onStart: (name: string, teacherEmail: string) => void;
+    onStartActivity: (activityType: ActivityType) => void;
+    error: string | null;
 }
 
-const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onStart }) => {
-    const [name, setName] = useState('');
-    const [email, setEmail] = useState('');
-    const [error, setError] = useState('');
+const activities = [
+    { type: ActivityType.SerVsEstar, title: "Ser vs. Estar", description: "Elige la forma correcta de 'ser' o 'estar'.", icon: ChatBubbleLeftRightIcon },
+    { type: ActivityType.FillInTheBlank, title: "Completar Huecos", description: "Rellena los espacios con la preposición correcta.", icon: PencilIcon },
+    { type: ActivityType.VocabularyMatch, title: "Unir Vocabulario", description: "Empareja las palabras con sus definiciones.", icon: ArrowsRightLeftIcon },
+    { type: ActivityType.ReadingComprehension, title: "Comprensión Lectora", description: "Lee un texto y responde a las preguntas.", icon: BookOpenIcon },
+    { type: ActivityType.VerbTenses, title: "Tiempos Verbales", description: "Practica el pretérito indefinido y el imperfecto.", icon: ClockIcon },
+    { type: ActivityType.VerbConjugation, title: "Conjugar Verbos", description: "Conjuga verbos irregulares en presente.", icon: ChartBarIcon },
+];
 
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        setError('');
-        if (!name.trim() || !email.trim()) {
-            setError('Por favor, completa todos los campos.');
-            return;
-        }
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-            setError('Por favor, introduce un correo electrónico válido.');
-            return;
-        }
-        onStart(name.trim(), email.trim());
-    };
-
+const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onStartActivity, error }) => {
     return (
-        <div className="w-full max-w-md mx-auto bg-white p-10 rounded-2xl shadow-xl border border-slate-100">
-            <h1 className="text-3xl font-bold text-center text-slate-800 bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">Repaso de Español A2</h1>
-            <p className="text-center text-slate-500 mt-2 mb-8">Introduce tus datos para empezar</p>
-            <form onSubmit={handleSubmit} className="space-y-6">
-                <div>
-                    <label htmlFor="name" className="block text-sm font-medium text-slate-700 mb-1">Tu Nombre</label>
-                    <input
-                        type="text"
-                        id="name"
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        className="block w-full px-4 py-3 bg-white border border-slate-300 rounded-lg shadow-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-indigo-500 sm:text-sm"
-                        placeholder="Ej: Ana García"
-                    />
+        <div className="container mx-auto px-4 py-12">
+            <header className="text-center mb-12">
+                <h1 className="text-4xl sm:text-5xl font-extrabold text-slate-900 mb-2">Generador de Ejercicios de Español</h1>
+                <p className="text-lg text-slate-600">Elige un tipo de ejercicio para empezar a practicar tu español con la ayuda de IA.</p>
+            </header>
+
+            {error && (
+                <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-8" role="alert">
+                    <strong className="font-bold">¡Oops! </strong>
+                    <span className="block sm:inline">{error}</span>
                 </div>
-                <div>
-                    <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-1">Correo del Profesor/a</label>
-                    <input
-                        type="email"
-                        id="email"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        className="block w-full px-4 py-3 bg-white border border-slate-300 rounded-lg shadow-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-indigo-500 sm:text-sm"
-                        placeholder="Ej: profesor@email.com"
-                    />
+            )}
+
+            <main>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+                    {activities.map((activity) => (
+                        <ActivityCard
+                            key={activity.type}
+                            title={activity.title}
+                            description={activity.description}
+                            icon={<activity.icon className="h-8 w-8 text-blue-600" />}
+                            onClick={() => onStartActivity(activity.type)}
+                        />
+                    ))}
                 </div>
-                {error && <p className="text-sm text-red-600 text-center">{error}</p>}
-                <div className="pt-2">
-                    <button type="submit" className="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-base font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors">
-                        Comenzar
-                    </button>
-                </div>
-            </form>
+            </main>
+            <footer className="text-center mt-16 text-slate-500">
+                <p>Powered by Google Gemini API</p>
+            </footer>
         </div>
     );
 };

@@ -1,169 +1,117 @@
+
 import React, { useState, useMemo } from 'react';
-import { UserAnswer } from '../types';
-import { sendResultsEmail } from '../services/emailService';
+import { Activity, UserAnswer, ActivityType, VocabularyMatchExercise, ReadingComprehensionExercise, SerVsEstarExercise, FillInTheBlankExercise, VerbTensesExercise } from '../types';
+import { sendResultsEmail, EmailData } from '../services/emailService';
 import { CheckCircleIcon, XCircleIcon } from './icons';
 
 interface ResultsScreenProps {
-    activityTitle: string;
+    activity: Activity;
     userAnswers: UserAnswer[];
-    studentName: string;
-    teacherEmail: string;
     onRestart: () => void;
-    completedActivities: Record<string, { score: number; total: number }>;
-    totalActivities: number;
 }
 
-type EmailStatus = 'idle' | 'sending' | 'success' | 'error';
+const ResultsScreen: React.FC<ResultsScreenProps> = ({ activity, userAnswers, onRestart }) => {
+    const [teacherEmail, setTeacherEmail] = useState('');
+    const [studentName, setStudentName] = useState('');
+    const [emailStatus, setEmailStatus] = useState<{ success: boolean; message: string } | null>(null);
+    const [isSending, setIsSending] = useState(false);
 
-const activityTypeToTitle: Record<string, string> = {
-    'ser-vs-estar': 'Ser vs. Estar',
-    'fill-in-the-blank': 'Completar Espacios',
-    'vocabulary-match': 'Emparejar Vocabulario',
-    'reading-comprehension': 'Comprensión Lectora',
-    'verb-tenses': 'Tiempos Verbales',
-    'verb-conjugation': 'Conjugar Verbos',
-};
+    const score = useMemo(() => {
+        return userAnswers.filter(answer => answer.isCorrect).length;
+    }, [userAnswers]);
 
-const ResultsScreen: React.FC<ResultsScreenProps> = ({
-    activityTitle,
-    userAnswers,
-    studentName,
-    teacherEmail,
-    onRestart,
-    completedActivities,
-    totalActivities
-}) => {
-    const [emailStatus, setEmailStatus] = useState<EmailStatus>('idle');
-    const [emailMessage, setEmailMessage] = useState('');
-
-    const score = useMemo(() => userAnswers.filter(answer => answer.isCorrect).length, [userAnswers]);
-    const totalQuestions = userAnswers.length;
+    const totalQuestions = activity.type === ActivityType.VocabularyMatch ? (activity as VocabularyMatchExercise).items.length : (activity as Exclude<Activity, VocabularyMatchExercise>).questions.length;
     const percentage = totalQuestions > 0 ? Math.round((score / totalQuestions) * 100) : 0;
+    
+    const getQuestionText = (index: number): string => {
+        const questionHoldingActivity = activity as ReadingComprehensionExercise | SerVsEstarExercise | FillInTheBlankExercise | VerbTensesExercise;
+        if (!questionHoldingActivity.questions) return "";
+        const q = questionHoldingActivity.questions[index];
+        if ('sentence' in q) return q.sentence;
+        if ('question' in q) return q.question;
+        return "";
+    }
 
-    const numCompleted = Object.keys(completedActivities).length;
-    const completionPercentage = totalActivities > 0 ? Math.round((numCompleted / totalActivities) * 100) : 0;
+    const handleSendEmail = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setIsSending(true);
+        setEmailStatus(null);
+        
+        const emailData: EmailData = {
+            studentName,
+            teacherEmail,
+            activityName: activity.title,
+            score,
+            totalQuestions,
+        };
 
-    const getScoreColor = (p: number) => {
-        if (p >= 80) return 'text-green-600';
-        if (p >= 50) return 'text-yellow-600';
-        return 'text-red-600';
-    };
-
-    const handlePrint = () => {
-        window.print();
-    };
-
-    const handleSendEmail = async () => {
-        setEmailStatus('sending');
-        setEmailMessage('');
-        try {
-            const response = await sendResultsEmail({
-                studentName,
-                teacherEmail,
-                activityName: activityTitle,
-                score,
-                totalQuestions,
-            });
-            if (response.success) {
-                setEmailStatus('success');
-                setEmailMessage(response.message);
-            } else {
-                setEmailStatus('error');
-                setEmailMessage(response.message);
-            }
-        } catch (error) {
-            setEmailStatus('error');
-            setEmailMessage('Ocurrió un error inesperado al enviar el correo.');
-        }
-    };
-
-    const renderEmailButton = () => {
-        switch (emailStatus) {
-            case 'sending':
-                return (
-                    <button className="w-full sm:w-auto px-6 py-3 border border-transparent rounded-lg shadow-sm text-base font-medium text-white bg-slate-400 cursor-not-allowed flex items-center justify-center" disabled>
-                        <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        Enviando...
-                    </button>
-                );
-            case 'success':
-                 return (
-                    <div className="text-center">
-                        <p className="flex items-center justify-center text-green-600"><CheckCircleIcon className="h-5 w-5 mr-2" /> {emailMessage}</p>
-                    </div>
-                );
-            case 'error':
-                 return (
-                    <div className="text-center">
-                        <p className="flex items-center justify-center text-red-600"><XCircleIcon className="h-5 w-5 mr-2" /> {emailMessage}</p>
-                        <button onClick={handleSendEmail} className="mt-2 text-sm text-indigo-600 hover:underline">Intentar de nuevo</button>
-                    </div>
-                );
-            case 'idle':
-            default:
-                return (
-                    <button onClick={handleSendEmail} className="w-full sm:w-auto px-6 py-3 border border-transparent rounded-lg shadow-sm text-base font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors">
-                        Enviar resultados
-                    </button>
-                );
+        const result = await sendResultsEmail(emailData);
+        setEmailStatus(result);
+        setIsSending(false);
+        if (result.success) {
+            setTeacherEmail('');
+            setStudentName('');
         }
     };
 
     return (
-        <div className="w-full max-w-4xl mx-auto">
-             <div className="bg-white p-8 sm:p-10 rounded-2xl shadow-xl border border-slate-100 printable-area">
-                <div className="text-center no-print">
-                    <h2 className="text-3xl font-bold text-slate-800 mb-2">¡Resultados!</h2>
-                    <p className="text-slate-500 mb-6">Aquí tienes un resumen de tu progreso, {studentName}.</p>
-                </div>
-                
-                <div className="hidden print:block mb-8 text-center">
-                    <h1 className="text-2xl font-bold">Informe de Resultados</h1>
-                    <p className="text-lg">Estudiante: {studentName}</p>
+        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+            <div className="max-w-2xl w-full bg-white p-8 rounded-xl shadow-lg">
+                <h1 className="text-4xl font-extrabold text-slate-800 text-center mb-2">¡Resultados!</h1>
+                <p className="text-center text-slate-600 mb-6">Ejercicio: <span className="font-semibold">{activity.title}</span></p>
+
+                <div className="text-center bg-blue-50 p-6 rounded-lg mb-8">
+                    <p className="text-lg text-slate-700">Tu Puntuación</p>
+                    <p className="text-6xl font-bold text-blue-600 my-2">{score} <span className="text-3xl font-medium text-slate-500">/ {totalQuestions}</span></p>
+                    <p className="text-2xl font-semibold text-blue-800">{percentage}%</p>
                 </div>
 
-                <div className="grid md:grid-cols-2 gap-8 my-8">
-                    <div className="bg-slate-50 p-6 rounded-lg text-center flex flex-col justify-center">
-                        <h3 className="text-xl font-bold text-slate-700 mb-4">Resultado de "{activityTitle}"</h3>
-                        <p className={`text-6xl font-bold ${getScoreColor(percentage)}`}>{percentage}%</p>
-                        <p className="text-xl text-slate-600 mt-2">{score} / {totalQuestions} correctas</p>
+                <div className="mb-8">
+                    <h3 className="text-xl font-bold text-slate-700 mb-4">Resumen de Respuestas</h3>
+                    <div className="space-y-3 max-h-60 overflow-y-auto pr-2">
+                        {userAnswers.map(answer => {
+                            const questionText = activity.type === ActivityType.VocabularyMatch 
+                                ? `${(activity as VocabularyMatchExercise).items[answer.questionIndex].word} - ${(activity as VocabularyMatchExercise).items[answer.questionIndex].definition}`
+                                : getQuestionText(answer.questionIndex);
+                                
+                            return (
+                                <div key={answer.questionIndex} className="flex items-center text-sm p-3 bg-slate-50 rounded-md">
+                                    {answer.isCorrect ? (
+                                        <CheckCircleIcon className="h-5 w-5 text-green-500 mr-3 flex-shrink-0" />
+                                    ) : (
+                                        <XCircleIcon className="h-5 w-5 text-red-500 mr-3 flex-shrink-0" />
+                                    )}
+                                    <span className="text-slate-600">{questionText.replace('___', `"${answer.answer}"`)}</span>
+                                </div>
+                            );
+                        })}
                     </div>
+                </div>
 
-                    <div className="bg-slate-50 p-6 rounded-lg">
-                        <h3 className="text-xl font-bold text-slate-700 mb-4 text-center">Progreso General</h3>
-                        <p className="text-slate-600 text-center">Has completado {numCompleted} de {totalActivities} actividades.</p>
-                        <div className="w-full bg-slate-200 rounded-full h-4 my-4">
-                            <div className="bg-green-500 h-4 rounded-full transition-all duration-500" style={{ width: `${completionPercentage}%` }}></div>
+                <div className="bg-slate-100 p-6 rounded-lg mb-8">
+                    <h3 className="text-xl font-bold text-slate-700 mb-4">Enviar Resultados al Profesor</h3>
+                    <form onSubmit={handleSendEmail} className="space-y-4">
+                        <div>
+                            <label htmlFor="studentName" className="block text-sm font-medium text-slate-700">Tu Nombre</label>
+                            <input type="text" id="studentName" value={studentName} onChange={e => setStudentName(e.target.value)} required className="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
                         </div>
-                        <p className="text-2xl font-bold text-green-600 text-center">{completionPercentage}% Completado</p>
-                    </div>
+                        <div>
+                            <label htmlFor="teacherEmail" className="block text-sm font-medium text-slate-700">Email del Profesor</label>
+                            <input type="email" id="teacherEmail" value={teacherEmail} onChange={e => setTeacherEmail(e.target.value)} required className="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
+                        </div>
+                        <button type="submit" disabled={isSending} className="w-full bg-green-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-700 transition-colors disabled:bg-slate-400">
+                            {isSending ? 'Enviando...' : 'Enviar Correo'}
+                        </button>
+                    </form>
+                    {emailStatus && (
+                         <p className={`mt-4 text-sm text-center font-semibold ${emailStatus.success ? 'text-green-700' : 'text-red-700'}`}>{emailStatus.message}</p>
+                    )}
                 </div>
 
-                <div className="hidden print:block mt-8">
-                    <h3 className="text-xl font-bold mb-4">Desglose de Puntuaciones</h3>
-                    <ul className="list-disc list-inside text-left">
-                        {Object.entries(completedActivities).map(([key, result]) => (
-                            <li key={key} className="mb-2 text-lg">
-                                <span className="font-semibold">{activityTypeToTitle[key] || key}:</span> {result.score} / {result.total}
-                            </li>
-                        ))}
-                    </ul>
-                </div>
-
-                <div className="mt-10 space-y-4 sm:space-y-0 sm:flex sm:flex-row-reverse sm:justify-center sm:space-x-4 sm:space-x-reverse no-print">
-                    <button onClick={onRestart} className="w-full sm:w-auto px-6 py-3 border border-slate-300 rounded-lg shadow-sm text-base font-medium text-slate-700 bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors">
-                        Elegir otra actividad
+                <div className="text-center">
+                    <button onClick={onRestart} className="bg-blue-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-blue-700 transition-colors">
+                        Hacer Otro Ejercicio
                     </button>
-                    <button onClick={handlePrint} className="w-full sm:w-auto px-6 py-3 border border-transparent rounded-lg shadow-sm text-base font-medium text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-colors">
-                        Imprimir
-                    </button>
-                </div>
-                
-                 <div className="mt-8 pt-6 border-t border-slate-200 no-print">
-                    {renderEmailButton()}
                 </div>
             </div>
         </div>
